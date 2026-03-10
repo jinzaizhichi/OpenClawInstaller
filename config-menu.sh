@@ -3360,15 +3360,18 @@ config_feishu_app() {
     echo "    • 安装官方插件 @openclaw/feishu"
     echo ""
     echo "  ${WHITE}第二步: 飞书开放平台创建应用${NC}"
-    echo "    1. 访问 https://open.feishu.cn/"
+    echo "    1. 访问 https://open.feishu.cn/app (飞书)"
+    echo "       或 https://open.larksuite.com/app (Lark 国际版)"
     echo "    2. 创建企业自建应用 → 添加「机器人」能力"
     echo "    3. 获取 App ID 和 App Secret"
     echo ""
     echo "  ${WHITE}第三步: 配置机器人权限${NC}"
-    echo "    • 权限管理 → 添加以下权限:"
-    echo "      - im:message (收发消息)"
-    echo "      - im:message:send_as_bot (发送消息)"
-    echo "      - im:chat:readonly (读取群信息)"
+    echo "    • 权限管理 → 建议使用「批量导入」(更稳)"
+    echo "      - im:message (收发消息，必须)"
+    echo "      - im:message:send_as_bot (发送消息，必须)"
+    echo "      - im:resource (图片/文件，多媒体推荐)"
+    echo "      - im:chat:readonly (读取群信息，推荐)"
+    echo "    • 可选查看官方推荐 scopes JSON（脚本稍后可打印）"
     echo ""
     echo "  ${WHITE}第四步: 输入配置信息${NC}"
     echo "    • 在此输入 App ID 和 App Secret"
@@ -3410,16 +3413,50 @@ config_feishu_app() {
     echo -e "${WHITE}━━━ 第二、三步: 请在飞书开放平台完成 ━━━${NC}"
     echo ""
     echo -e "${CYAN}请打开飞书开放平台完成以下操作:${NC}"
-    echo "  1. 访问 https://open.feishu.cn/"
+    echo "  1. 访问 https://open.feishu.cn/app (飞书) 或 https://open.larksuite.com/app (Lark)"
     echo "  2. 创建企业自建应用 → 添加「机器人」能力"
     echo "  3. 获取 App ID 和 App Secret"
-    echo "  4. 权限管理 → 添加权限:"
-    echo "     - im:message (收发消息)"
-    echo "     - im:message:send_as_bot (发送消息)"
-    echo "     - im:chat:readonly (读取群信息)"
+    echo "  4. 权限管理 → 建议「批量导入」权限 scopes"
+    echo "     - 至少包含: im:message / im:message:send_as_bot"
+    echo "     - 多媒体建议: im:resource"
+    echo "     - 群信息建议: im:chat:readonly"
     echo ""
     echo -e "${GREEN}💡 提示: 使用长连接模式，无需配置公网 Webhook 地址${NC}"
     echo ""
+
+    if confirm "是否显示官方推荐「权限管理 → 批量导入」JSON？" "n"; then
+        echo ""
+        echo -e "${CYAN}将以下 JSON 粘贴到飞书后台：权限管理 → 批量导入${NC}"
+        cat << 'EOF'
+{
+  "scopes": {
+    "tenant": [
+      "aily:file:read",
+      "aily:file:write",
+      "application:application.app_message_stats.overview:readonly",
+      "application:application:self_manage",
+      "application:bot.menu:write",
+      "cardkit:card:read",
+      "cardkit:card:write",
+      "contact:user.employee_id:readonly",
+      "corehr:file:download",
+      "event:ip_list",
+      "im:chat.access_event.bot_p2p_chat:read",
+      "im:chat.members:bot_access",
+      "im:message",
+      "im:message.group_at_msg:readonly",
+      "im:message.p2p_msg:readonly",
+      "im:message:readonly",
+      "im:message:send_as_bot",
+      "im:resource"
+    ],
+    "user": ["aily:file:read", "aily:file:write", "im:chat.access_event.bot_p2p_chat:read"]
+  }
+}
+EOF
+        echo ""
+        echo -e "${GRAY}完整版步骤文档: https://github.com/${INSTALLER_REPO}/blob/main/docs/feishu-setup.md${NC}"
+    fi
     
     if ! confirm "已完成飞书后台配置，继续输入信息？"; then
         press_enter

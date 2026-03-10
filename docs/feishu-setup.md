@@ -55,6 +55,49 @@ OpenClaw 飞书渠道具有以下特性：
 | 以应用的身份发消息 | `im:message:send_as_bot` | 发送消息（必须） |
 | 获取群组信息 | `im:chat:readonly` | 读取群信息（推荐） |
 
+#### ✅ 权限授权清单（推荐批量导入）
+
+上表是“最小可用”的权限集，但在实际使用（尤其是多媒体、群成员信息、配对/私聊路由等）时，权限不全会导致：
+
+- 网关能连上，但收不到消息
+- 能收消息但无法发图/文件
+- 部分 API 调用 403/权限不足
+
+推荐使用飞书后台 **权限管理 → 批量导入**，粘贴官方推荐的 scopes JSON：
+
+<details>
+<summary>点击展开：官方推荐 scopes（批量导入 JSON）</summary>
+
+```json
+{
+  "scopes": {
+    "tenant": [
+      "aily:file:read",
+      "aily:file:write",
+      "application:application.app_message_stats.overview:readonly",
+      "application:application:self_manage",
+      "application:bot.menu:write",
+      "cardkit:card:read",
+      "cardkit:card:write",
+      "contact:user.employee_id:readonly",
+      "corehr:file:download",
+      "event:ip_list",
+      "im:chat.access_event.bot_p2p_chat:read",
+      "im:chat.members:bot_access",
+      "im:message",
+      "im:message.group_at_msg:readonly",
+      "im:message.p2p_msg:readonly",
+      "im:message:readonly",
+      "im:message:send_as_bot",
+      "im:resource"
+    ],
+    "user": ["aily:file:read", "aily:file:write", "im:chat.access_event.bot_p2p_chat:read"]
+  }
+}
+```
+
+</details>
+
 ### 第五步：发布应用
 
 1. 点击左侧菜单「版本管理与发布」
@@ -70,7 +113,11 @@ OpenClaw 飞书渠道具有以下特性：
 运行配置菜单：
 
 ```bash
-bash ~/.openclaw/config-menu.sh
+# 在本仓库目录运行
+bash ./config-menu.sh
+
+# 或者直接下载运行
+curl -fsSL https://raw.githubusercontent.com/leecyno1/auto-install-Openclaw/main/config-menu.sh -o config-menu.sh && bash config-menu.sh
 ```
 
 1. 选择 `[3] 消息渠道配置`
@@ -88,6 +135,13 @@ openclaw config set channels.feishu.accounts.main.appSecret "<APP_SECRET>"
 ### 第七步：配置事件订阅（长连接）
 
 > ⚠️ **重要**: 此步骤需要 OpenClaw 服务已启动，否则无法保存长连接设置。
+
+先确认网关已启动（否则“长连接接收事件”很可能保存失败）：
+
+```bash
+openclaw gateway status
+openclaw logs --follow
+```
 
 1. 回到飞书开放平台，进入应用详情
 2. 点击左侧菜单「事件与回调」
@@ -138,6 +192,15 @@ bash ~/.openclaw/config-menu.sh
 2. @机器人 发送消息
 3. 等待机器人回复
 
+### 私聊需要配对（pairing）
+
+默认私聊策略通常是 `dmPolicy: pairing`。如果机器人在私聊里回复了配对码，需要在服务器侧批准：
+
+```bash
+openclaw pairing list feishu
+openclaw pairing approve feishu <CODE>
+```
+
 ### 获取群组 Chat ID
 
 如需获取群组 Chat ID 用于测试：
@@ -166,9 +229,10 @@ openclaw gateway status
 
 1. **服务是否运行**: `openclaw gateway status`
 2. **事件订阅是否配置**: 确保添加了 `im.message.receive_v1` 事件
-3. **权限是否完整**: 确保添加了 `im:message` 和 `im:message:send_as_bot` 权限
+3. **权限是否完整**: 推荐使用“批量导入 scopes JSON”（见上方权限清单）
 4. **应用是否发布**: 未发布的应用无法正常使用
 5. **机器人是否在群里**: 确保机器人已添加到群组
+6. **私聊是否需要配对**: `openclaw pairing list feishu`
 
 ### Q: 群聊中如何触发机器人？
 
