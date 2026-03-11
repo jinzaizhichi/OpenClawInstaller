@@ -28,12 +28,14 @@ pass "feishu plugin default marker"
 grep -q -- "--install-method, --method" install.sh || fail "install.sh missing official install-method flag"
 grep -q "OFFICIAL_INSTALL_URL=\"https://openclaw.ai/install.sh\"" install.sh || fail "install.sh missing official installer url"
 grep -q "MIN_NODE_MINOR=12" install.sh || fail "install.sh missing Node 22.12+ floor"
+grep -q "INSTALLER_MIRROR_RAW_URL=" install.sh || fail "install.sh missing installer mirror support"
 pass "installer compatibility markers"
 
 # 5) 文档命令一致性检查
 grep -q "openclaw update --restart" README.md || fail "README missing official upgrade command"
 grep -q "openclaw plugins update --all" README.md || fail "README missing plugin update command"
 grep -q "raw.githubusercontent.com/leecyno1/auto-install-Openclaw/main/install.sh" README.md || fail "README missing new one-click url"
+grep -q "mirror.ghproxy.com/https://raw.githubusercontent.com/leecyno1/auto-install-Openclaw/main/install.sh" README.md || fail "README missing mirror one-click url"
 pass "README command markers"
 
 # 6) 独立仓库命名检查（不应再指向旧仓库）

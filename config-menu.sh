@@ -76,6 +76,7 @@ FEISHU_PLUGIN_OFFICIAL="@openclaw/feishu"
 INSTALLER_REPO="leecyno1/auto-install-Openclaw"
 INSTALLER_RAW_URL="https://raw.githubusercontent.com/${INSTALLER_REPO}/main"
 AUTO_FIX_OPENCLAW_REPO_URL="${AUTO_FIX_OPENCLAW_REPO_URL:-https://github.com/leecyno1/auto-fix-openclaw.git}"
+AUTO_FIX_OPENCLAW_REPO_MIRROR_URL="${AUTO_FIX_OPENCLAW_REPO_MIRROR_URL:-https://mirror.ghproxy.com/https://github.com/leecyno1/auto-fix-openclaw.git}"
 AUTO_FIX_OPENCLAW_DIR="${AUTO_FIX_OPENCLAW_DIR:-$HOME/.openclaw/tools/auto-fix-openclaw}"
 AUTO_FIX_OPENCLAW_BIN="$AUTO_FIX_OPENCLAW_DIR/bin/auto-fix-openclaw"
 
@@ -4630,8 +4631,13 @@ ensure_auto_fix_openclaw_ready() {
     else
         log_info "正在克隆 auto-fix-openclaw..."
         if ! git clone --depth 1 "$AUTO_FIX_OPENCLAW_REPO_URL" "$AUTO_FIX_OPENCLAW_DIR"; then
-            log_error "克隆失败: $AUTO_FIX_OPENCLAW_REPO_URL"
-            return 1
+            log_warn "主仓库克隆失败，尝试镜像源..."
+            rm -rf "$AUTO_FIX_OPENCLAW_DIR" 2>/dev/null || true
+            if ! git clone --depth 1 "$AUTO_FIX_OPENCLAW_REPO_MIRROR_URL" "$AUTO_FIX_OPENCLAW_DIR"; then
+                log_error "克隆失败: $AUTO_FIX_OPENCLAW_REPO_URL"
+                log_error "镜像也失败: $AUTO_FIX_OPENCLAW_REPO_MIRROR_URL"
+                return 1
+            fi
         fi
     fi
 

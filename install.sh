@@ -71,6 +71,10 @@ GITHUB_REPO="${GITHUB_REPO:-leecyno1/auto-install-Openclaw}"
 GITHUB_RAW_URL="https://raw.githubusercontent.com/$GITHUB_REPO/main"
 OFFICIAL_INSTALL_URL="https://openclaw.ai/install.sh"
 OFFICIAL_DOCS_URL="https://docs.openclaw.ai"
+INSTALLER_MIRROR_RAW_URL="${OPENCLAW_INSTALLER_MIRROR_RAW_URL:-https://mirror.ghproxy.com/${GITHUB_RAW_URL}}"
+OFFICIAL_INSTALL_MIRROR_URL="${OPENCLAW_OFFICIAL_INSTALL_MIRROR_URL:-}"
+CURL_CONNECT_TIMEOUT="${OPENCLAW_CURL_CONNECT_TIMEOUT:-8}"
+CURL_MAX_TIME="${OPENCLAW_CURL_MAX_TIME:-30}"
 
 NO_ONBOARD="${OPENCLAW_NO_ONBOARD:-0}"
 NO_PROMPT="${OPENCLAW_NO_PROMPT:-0}"
@@ -115,6 +119,21 @@ log_error() {
 
 log_step() {
     echo -e "${BLUE}[STEP]${NC} $1"
+}
+
+download_with_fallback() {
+    local output_path="$1"
+    shift
+    local url=""
+    for url in "$@"; do
+        [ -z "$url" ] && continue
+        if curl -fsSL --proto '=https' --tlsv1.2 --connect-timeout "$CURL_CONNECT_TIMEOUT" --max-time "$CURL_MAX_TIME" "$url" -o "$output_path"; then
+            log_info "下载成功: $url"
+            return 0
+        fi
+        log_warn "下载失败: $url"
+    done
+    return 1
 }
 
 spinner() {
@@ -163,6 +182,10 @@ ${INSTALLER_NAME} (OpenClaw 安装增强版)
   OPENCLAW_NO_PROMPT=0|1
   OPENCLAW_DRY_RUN=0|1
   OPENCLAW_VERBOSE=0|1
+  OPENCLAW_INSTALLER_MIRROR_RAW_URL=<mirror_raw_url>
+  OPENCLAW_OFFICIAL_INSTALL_MIRROR_URL=<mirror_install_sh_url>
+  OPENCLAW_CURL_CONNECT_TIMEOUT=<seconds>
+  OPENCLAW_CURL_MAX_TIME=<seconds>
 EOF
 }
 
@@ -522,7 +545,7 @@ install_openclaw_via_official() {
     log_info "调用官方安装器以确保核心安装行为与上游一致..."
     local tmp_script
     tmp_script="$(mktemp /tmp/openclaw-install.XXXXXX.sh)"
-    if ! curl -fsSL --proto '=https' --tlsv1.2 "$OFFICIAL_INSTALL_URL" -o "$tmp_script"; then
+    if ! download_with_fallback "$tmp_script" "$OFFICIAL_INSTALL_URL" "$OFFICIAL_INSTALL_MIRROR_URL"; then
         rm -f "$tmp_script" 2>/dev/null || true
         return 1
     fi
@@ -1773,7 +1796,7 @@ run_config_menu() {
         echo ""
         if confirm "是否从 GitHub 更新到最新版本？" "n"; then
             log_step "从 GitHub 下载最新配置菜单..."
-            if curl -fsSL "$GITHUB_RAW_URL/config-menu.sh" -o "$config_menu_path.tmp"; then
+            if download_with_fallback "$config_menu_path.tmp" "$GITHUB_RAW_URL/config-menu.sh" "$INSTALLER_MIRROR_RAW_URL/config-menu.sh"; then
                 mv "$config_menu_path.tmp" "$config_menu_path"
                 chmod +x "$config_menu_path"
                 log_info "配置菜单已更新: $config_menu_path"
@@ -1788,7 +1811,7 @@ run_config_menu() {
     else
         # 本地没有配置菜单，从 GitHub 下载
         log_step "从 GitHub 下载配置菜单..."
-        if curl -fsSL "$GITHUB_RAW_URL/config-menu.sh" -o "$config_menu_path.tmp"; then
+        if download_with_fallback "$config_menu_path.tmp" "$GITHUB_RAW_URL/config-menu.sh" "$INSTALLER_MIRROR_RAW_URL/config-menu.sh"; then
             mv "$config_menu_path.tmp" "$config_menu_path"
             chmod +x "$config_menu_path"
             log_info "配置菜单已下载: $config_menu_path"
@@ -1797,7 +1820,7 @@ run_config_menu() {
             rm -f "$config_menu_path.tmp" 2>/dev/null
             log_error "配置菜单下载失败"
             echo -e "${YELLOW}你可以稍后手动下载运行:${NC}"
-            echo "  curl -fsSL $GITHUB_RAW_URL/config-menu.sh -o config-menu.sh && bash config-menu.sh"
+            echo "  bash -c 'set -e; tmp=\"\$(mktemp)\"; for u in \"$GITHUB_RAW_URL/config-menu.sh\" \"$INSTALLER_MIRROR_RAW_URL/config-menu.sh\"; do if curl -fsSL --proto \"=https\" --tlsv1.2 --connect-timeout ${CURL_CONNECT_TIMEOUT} --max-time ${CURL_MAX_TIME} \"\$u\" -o \"\$tmp\"; then bash \"\$tmp\"; rm -f \"\$tmp\"; exit 0; fi; done; rm -f \"\$tmp\"; echo \"All sources failed\"; exit 1'"
             return 1
         fi
     fi
