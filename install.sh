@@ -273,6 +273,7 @@ read_input() {
 read_secret_input() {
     local prompt="$1"
     local var_name="$2"
+    echo -e "${GRAY}（自动隐藏，直接粘贴后回车即可）${NC}"
     echo -en "$prompt"
     if stty -echo < "$TTY_INPUT" 2>/dev/null; then
         read $var_name < "$TTY_INPUT"
@@ -1218,7 +1219,7 @@ run_onboard_wizard() {
         echo "  1. 选择 AI 模型提供商"
         echo "  2. 配置 API 连接"
         echo "  3. 测试 API 连接"
-        echo "  4. 设置基本身份信息"
+        echo "  4. 消息渠道配置"
         echo ""
     fi
     
@@ -1235,18 +1236,19 @@ run_onboard_wizard() {
         fi
     fi
     
-    # 身份配置
-    if [ "$skip_identity_config" = false ]; then
-        setup_identity
-    else
-        # 初始化渠道配置变量
-        TELEGRAM_ENABLED="false"
-        DISCORD_ENABLED="false"
-        SHELL_ENABLED="false"
-        FILE_ACCESS="false"
+    # 模型配置完成后，自动进入消息渠道配置
+    echo ""
+    echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo -e "${WHITE}  第 3 步: 消息渠道配置${NC}"
+    echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo ""
+    if confirm "现在进入消息渠道配置？" "y"; then
+        if ! run_config_menu --channels-only; then
+            log_warn "消息渠道配置菜单启动失败，可稍后手动运行: bash ./config-menu.sh"
+        fi
     fi
-    
-    log_info "核心配置完成！"
+
+    log_info "模型与消息渠道配置流程已完成！"
 }
 
 # ================================ AI Provider 配置 ================================
@@ -2063,6 +2065,7 @@ start_openclaw_service() {
 
 # 下载并运行配置菜单
 run_config_menu() {
+    local menu_args=("$@")
     local config_menu_path="./config-menu.sh"
     local script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
     local local_config_menu="$script_dir/config-menu.sh"
@@ -2125,9 +2128,9 @@ run_config_menu() {
     # 启动配置菜单（使用 /dev/tty 确保交互正常）
     echo ""
     if [ -e /dev/tty ]; then
-        bash "$menu_script" < /dev/tty
+        bash "$menu_script" "${menu_args[@]}" < /dev/tty
     else
-        bash "$menu_script"
+        bash "$menu_script" "${menu_args[@]}"
     fi
     return $?
 }

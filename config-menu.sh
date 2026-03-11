@@ -37,6 +37,7 @@ read_input() {
 read_secret_input() {
     local prompt="$1"
     local var_name="$2"
+    echo -e "${GRAY}（自动隐藏，直接粘贴后回车即可）${NC}"
     echo -en "$prompt"
     if stty -echo < "$TTY_INPUT" 2>/dev/null; then
         read $var_name < "$TTY_INPUT"
@@ -5668,6 +5669,22 @@ main() {
     # 确保配置目录存在
     mkdir -p "$CONFIG_DIR"
     mkdir -p "$BACKUP_DIR"
+
+    # 快捷模式：安装脚本可直接跳转到指定配置页
+    case "${1:-}" in
+        --model-only)
+            config_ai_model
+            echo ""
+            echo -e "${CYAN}模型配置流程结束。${NC}"
+            exit 0
+            ;;
+        --channels-only)
+            config_channels
+            echo ""
+            echo -e "${CYAN}消息渠道配置流程结束。${NC}"
+            exit 0
+            ;;
+    esac
     
     # 主循环
     while true; do
