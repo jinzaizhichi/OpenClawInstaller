@@ -80,6 +80,10 @@ FEISHU_PLUGIN_OFFICIAL="@openclaw/feishu"
 # QQ 社区插件策略（可选，不默认）
 QQ_PLUGIN_COMMUNITY="@sliverp/qqbot"
 QQ_PLUGIN_VERSION_DEFAULT="${OPENCLAW_QQ_PLUGIN_VERSION:-1.5.4}"
+# 微信社区插件策略（LangBot WeChatPad 适配）
+WECHAT_PLUGIN_LANGBOT="openclaw-wechat-channel"
+WECHAT_PLUGIN_VERSION_DEFAULT="${OPENCLAW_WECHAT_PLUGIN_VERSION:-0.5.0}"
+WECHATPAD_CALLBACK_PATH_DEFAULT="${OPENCLAW_WECHATPAD_CALLBACK_PATH:-/api/callback/wechatpadpro}"
 INSTALLER_REPO="leecyno1/auto-install-Openclaw"
 INSTALLER_RAW_URL="https://raw.githubusercontent.com/${INSTALLER_REPO}/main"
 AUTO_FIX_OPENCLAW_REPO_URL="${AUTO_FIX_OPENCLAW_REPO_URL:-https://github.com/leecyno1/auto-fix-openclaw.git}"
@@ -568,6 +572,17 @@ upsert_env_export() {
         { print }
         END { if (!done) print "export " k "=" v }
     ' "$file" > "$tmp_file" && mv "$tmp_file" "$file"
+    chmod 600 "$file" 2>/dev/null || true
+}
+
+remove_env_export() {
+    local key="$1"
+    local file="$OPENCLAW_ENV"
+
+    [ -f "$file" ] || return 0
+    local tmp_file
+    tmp_file="$(mktemp)"
+    awk -v k="$key" '$0 !~ "^export " k "=" { print }' "$file" > "$tmp_file" && mv "$tmp_file" "$file"
     chmod 600 "$file" 2>/dev/null || true
 }
 
@@ -3163,7 +3178,7 @@ config_channels() {
     print_menu_item "12" "Nextcloud Talk（官方插件）" "☁️"
     print_menu_item "13" "更多官方渠道" "🧭"
     print_menu_item "14" "钉钉/QQ/企业微信 官方状态检查" "🧾"
-    print_menu_item "15" "微信（社区/旧版，非官方）" "🟢"
+    print_menu_item "15" "微信（LangBot WeChatPad，社区）" "🟢"
     print_menu_item "16" "iMessage（旧版）" "🍎"
     print_menu_item "17" "QQ（社区插件，可选）" "🐧"
     print_menu_item "0" "返回主菜单" "↩️"
@@ -3612,6 +3627,7 @@ check_cn_enterprise_channel_official_status() {
     echo ""
     echo -e "${CYAN}可选社区方案（非官方，需自行评估风险）:${NC}"
     echo "  • QQ: @sliverp/qqbot（本菜单提供安装/探针/回滚）"
+    echo "  • 微信: openclaw-wechat-channel（按 LangBot WeChatPad 适配流程）"
     echo ""
     echo -e "${CYAN}已纳入的官方企业渠道替代项:${NC}"
     echo "  • 飞书（Feishu）"
@@ -3848,56 +3864,230 @@ config_qq_community() {
     press_enter
 }
 
+probe_wechat_langbot_config() {
+    echo ""
+    echo -e "${CYAN}━━━ 微信 LangBot/WeChatPad 探针 ━━━${NC}"
+    echo ""
+
+    if ! check_openclaw_installed; then
+        log_error "OpenClaw 未安装，无法探针"
+        return 1
+    fi
+
+    local plugin_ok=false
+    local channel_ok=false
+    local proxy_url=""
+
+    if openclaw plugins list 2>/dev/null | grep -Eqi "openclaw-wechat-channel|wechat"; then
+        plugin_ok=true
+        log_info "微信社区插件已安装"
+    else
+        log_warn "未检测到微信社区插件"
+    fi
+
+    if openclaw channels list 2>/dev/null | grep -qi "wechat"; then
+        channel_ok=true
+        log_info "微信渠道已注册"
+    else
+        log_warn "微信渠道未在 channels list 中出现"
+    fi
+
+    proxy_url="$(openclaw config get channels.wechat.accounts.main.proxyUrl 2>/dev/null || true)"
+    if [ -z "$proxy_url" ] || [ "$proxy_url" = "undefined" ]; then
+        proxy_url="$(openclaw config get channels.wechat.proxyUrl 2>/dev/null || true)"
+    fi
+    if [ -n "$proxy_url" ] && [ "$proxy_url" != "undefined" ]; then
+        echo -e "${CYAN}Proxy URL:${NC} ${WHITE}$proxy_url${NC}"
+        if curl -fsS --max-time 5 "$proxy_url" >/dev/null 2>&1; then
+            log_info "Proxy 连通性检查通过"
+        else
+            log_warn "Proxy URL 无法直接连通，请检查 LangBot 适配器服务状态"
+        fi
+    else
+        log_warn "未检测到 channels.wechat.proxyUrl / accounts.main.proxyUrl"
+    fi
+
+    if [ "$plugin_ok" = true ] && [ "$channel_ok" = true ]; then
+        log_info "微信配置探针通过"
+        return 0
+    fi
+
+    echo ""
+    echo -e "${YELLOW}排障建议:${NC}"
+    echo "  1) openclaw doctor --fix"
+    echo "  2) openclaw plugins update --all"
+    echo "  3) 重新执行微信配置向导"
+    return 1
+}
+
+rollback_wechat_langbot_config() {
+    echo ""
+    echo -e "${WHITE}♻️ 回滚微信（LangBot/WeChatPad）配置${NC}"
+    print_divider
+    echo ""
+    echo -e "${YELLOW}将执行:${NC}"
+    echo "  • 禁用并卸载微信社区插件"
+    echo "  • 清理 channels.wechat 与 plugins.allow 残留"
+    echo "  • 清理 WECHATPADPRO_* 环境变量"
+    echo ""
+
+    if ! confirm "确认执行回滚？" "n"; then
+        log_info "已取消回滚"
+        return 0
+    fi
+
+    openclaw plugins disable wechat > /dev/null 2>&1 || true
+    openclaw plugins uninstall wechat --keep-files > /dev/null 2>&1 || true
+    openclaw plugins uninstall "$WECHAT_PLUGIN_LANGBOT" --keep-files > /dev/null 2>&1 || true
+
+    if openclaw config --help 2>/dev/null | grep -q "unset"; then
+        openclaw config unset channels.wechat > /dev/null 2>&1 || true
+        openclaw config unset plugins.entries.wechat > /dev/null 2>&1 || true
+    else
+        openclaw config set channels.wechat.enabled false > /dev/null 2>&1 || true
+    fi
+
+    remove_plugin_from_allow "wechat" || true
+    remove_env_export "WECHATPADPRO_BASEURL"
+    remove_env_export "WECHATPADPRO_API_KEY"
+    remove_env_export "WECHATPADPRO_CALLBACK_HOST"
+    remove_env_export "WECHATPADPRO_CALLBACK_PORT"
+    remove_env_export "WECHATPADPRO_CALLBACK_PATH"
+
+    log_info "微信配置回滚完成"
+    if confirm "是否重启 Gateway 使回滚生效？" "y"; then
+        restart_gateway_for_channel
+    fi
+    return 0
+}
+
+config_wechat_langbot_setup() {
+    if ! check_openclaw_installed; then
+        log_error "OpenClaw 未安装"
+        return 1
+    fi
+
+    ensure_openclaw_init
+
+    local plugin_version="${OPENCLAW_WECHAT_PLUGIN_VERSION:-$WECHAT_PLUGIN_VERSION_DEFAULT}"
+    local plugin_spec="${WECHAT_PLUGIN_LANGBOT}@${plugin_version}"
+    local proxy_url=""
+    local api_key=""
+    local webhook_host=""
+    local webhook_port=""
+    local webhook_path=""
+
+    webhook_host="$(get_gateway_host)"
+    webhook_port="$(get_gateway_port)"
+    webhook_path="$WECHATPAD_CALLBACK_PATH_DEFAULT"
+
+    echo -e "${YELLOW}⚠️ 社区适配说明:${NC}"
+    echo "  • 微信/WeChatPad 当前不在 OpenClaw 官方渠道列表中"
+    echo "  • 此方案按 LangBot 适配器流程对接 WeChatPad 协议"
+    echo "  • 插件固定版本安装，降低升级漂移风险"
+    echo ""
+    echo -e "${CYAN}参考字段（LangBot 文档）:${NC}"
+    echo "  • WECHATPADPRO_BASEURL"
+    echo "  • WECHATPADPRO_API_KEY"
+    echo ""
+
+    if ! confirm "继续安装并配置微信 WeChatPad 适配？" "n"; then
+        log_info "已取消微信配置"
+        return 0
+    fi
+
+    echo ""
+    echo -e "${CYAN}安装插件: ${WHITE}${plugin_spec}${NC}"
+    if openclaw plugins install "$plugin_spec" --pin; then
+        log_info "微信社区插件安装成功"
+    else
+        log_warn "插件安装失败，尝试继续使用已安装版本"
+        if ! openclaw plugins list 2>/dev/null | grep -Eqi "openclaw-wechat-channel|wechat"; then
+            log_error "未检测到微信插件，无法继续"
+            return 1
+        fi
+    fi
+
+    openclaw plugins enable wechat > /dev/null 2>&1 || true
+    ensure_plugin_in_allow "wechat"
+
+    echo ""
+    read_input "${YELLOW}LangBot/WeChatPad 代理地址 (如 https://your-proxy.example.com): ${NC}" proxy_url
+    read_secret_input "${YELLOW}微信 API Key: ${NC}" api_key
+    read_input "${YELLOW}回调 Host（默认 ${webhook_host}）: ${NC}" webhook_host
+    webhook_host="${webhook_host:-$(get_gateway_host)}"
+    read_input "${YELLOW}回调 Port（默认 ${webhook_port}）: ${NC}" webhook_port
+    webhook_port="${webhook_port:-$(get_gateway_port)}"
+    read_input "${YELLOW}回调 Path（默认 ${webhook_path}）: ${NC}" webhook_path
+    webhook_path="${webhook_path:-$WECHATPAD_CALLBACK_PATH_DEFAULT}"
+
+    if [ -z "$proxy_url" ] || [ -z "$api_key" ]; then
+        log_error "proxy_url / api_key 不能为空"
+        return 1
+    fi
+    if ! is_valid_port "$webhook_port"; then
+        log_error "回调端口无效: $webhook_port"
+        return 1
+    fi
+
+    # 注册渠道（部分版本可选）
+    openclaw channels add --channel wechat > /dev/null 2>&1 || true
+
+    # 写入主账号配置，采用 accounts.main 结构
+    openclaw config set channels.wechat.enabled true > /dev/null 2>&1 || true
+    openclaw config set channels.wechat.accounts.main.enabled true > /dev/null 2>&1 || true
+    openclaw config set channels.wechat.accounts.main.name "wechatpad-main" > /dev/null 2>&1 || true
+    openclaw config set channels.wechat.accounts.main.apiKey "$api_key" > /dev/null 2>&1 || true
+    openclaw config set channels.wechat.accounts.main.proxyUrl "$proxy_url" > /dev/null 2>&1 || true
+    openclaw config set channels.wechat.accounts.main.webhookHost "$webhook_host" > /dev/null 2>&1 || true
+    openclaw config set channels.wechat.accounts.main.webhookPort "$webhook_port" > /dev/null 2>&1 || true
+    openclaw config set channels.wechat.accounts.main.webhookPath "$webhook_path" > /dev/null 2>&1 || true
+
+    # 顶层镜像字段，兼容部分社区插件读取路径
+    openclaw config set channels.wechat.apiKey "$api_key" > /dev/null 2>&1 || true
+    openclaw config set channels.wechat.proxyUrl "$proxy_url" > /dev/null 2>&1 || true
+    openclaw config set channels.wechat.webhookHost "$webhook_host" > /dev/null 2>&1 || true
+    openclaw config set channels.wechat.webhookPort "$webhook_port" > /dev/null 2>&1 || true
+    openclaw config set channels.wechat.webhookPath "$webhook_path" > /dev/null 2>&1 || true
+
+    upsert_env_export "WECHATPADPRO_BASEURL" "$proxy_url"
+    upsert_env_export "WECHATPADPRO_API_KEY" "$api_key"
+    upsert_env_export "WECHATPADPRO_CALLBACK_HOST" "$webhook_host"
+    upsert_env_export "WECHATPADPRO_CALLBACK_PORT" "$webhook_port"
+    upsert_env_export "WECHATPADPRO_CALLBACK_PATH" "$webhook_path"
+
+    log_info "微信 WeChatPad 适配配置完成"
+    echo -e "${CYAN}回调地址:${NC} ${WHITE}http://${webhook_host}:${webhook_port}${webhook_path}${NC}"
+
+    if confirm "是否立即执行微信配置探针？" "y"; then
+        probe_wechat_langbot_config || true
+    fi
+    if confirm "是否重启 Gateway 使配置生效？" "y"; then
+        restart_gateway_for_channel
+    fi
+    return 0
+}
+
 config_wechat() {
     clear_screen
     print_header
-    
-    echo -e "${WHITE}🟢 配置微信（社区/旧版）${NC}"
+    echo -e "${WHITE}🟢 微信（LangBot WeChatPad）${NC}"
     print_divider
     echo ""
-    
-    echo -e "${YELLOW}⚠️ 注意: 微信当前不在官方渠道列表中，通常需要第三方桥接方案${NC}"
+    echo "  1) 配置 LangBot 适配器（WeChatPad 协议）"
+    echo "  2) 微信配置探针"
+    echo "  3) 回滚微信配置"
+    echo "  0) 返回"
     echo ""
-    
-    if ! check_openclaw_installed; then
-        log_error "OpenClaw 未安装"
-        press_enter
-        return
-    fi
-    
-    echo -e "${CYAN}微信接入说明:${NC}"
-    echo "  • 当前官方 channels 文档未列出微信官方插件"
-    echo "  • 该入口仅用于旧版/社区方案排查，不作为官方适配路径"
-    echo "  • 推荐优先使用飞书、Slack、Teams、Google Chat 等官方渠道"
-    echo ""
-    
-    # 检查是否有微信相关插件
-    echo -e "${YELLOW}检查可用插件...${NC}"
-    local plugins=$(openclaw plugins list 2>/dev/null | grep -i wechat || echo "")
-    
-    if [ -n "$plugins" ]; then
-        echo ""
-        echo -e "${CYAN}发现微信相关插件:${NC}"
-        echo "$plugins"
-        echo ""
-        
-        if confirm "是否启用微信插件？"; then
-            openclaw plugins enable wechat 2>/dev/null || true
-            ensure_plugin_in_allow "wechat"
-            log_info "微信插件已启用"
-            
-            if confirm "是否重启 Gateway？" "y"; then
-                restart_gateway_for_channel
-            fi
-        fi
-    else
-        echo ""
-        log_warn "未发现内置微信插件"
-        echo -e "${CYAN}你可以尝试第三方方案:${NC}"
-        echo "  • wechaty: https://wechaty.js.org/"
-        echo "  • itchat: https://github.com/littlecodersh/itchat"
-    fi
-    
+    read_input "${YELLOW}请选择 [0-3]: ${NC}" wechat_choice
+
+    case "$wechat_choice" in
+        1) config_wechat_langbot_setup ;;
+        2) probe_wechat_langbot_config ;;
+        3) rollback_wechat_langbot_config ;;
+        0) return ;;
+        *) log_error "无效选择" ;;
+    esac
     press_enter
 }
 
@@ -4496,6 +4686,148 @@ config_whitelist() {
 
 # ================================ 服务管理 ================================
 
+stop_openclaw_for_uninstall() {
+    log_info "正在停止 OpenClaw 服务..."
+    if check_openclaw_installed; then
+        openclaw gateway stop 2>/dev/null || true
+        sleep 1
+    fi
+    local uninstall_pid
+    uninstall_pid="$(get_gateway_pid)"
+    if [ -n "$uninstall_pid" ]; then
+        log_warn "强制停止残留进程 (PID: $uninstall_pid)"
+        kill -9 "$uninstall_pid" 2>/dev/null || true
+        sleep 1
+    fi
+}
+
+remove_openclaw_system_services() {
+    if [ -f "$HOME/Library/LaunchAgents/com.openclaw.agent.plist" ]; then
+        log_info "移除 macOS 系统服务..."
+        launchctl unload "$HOME/Library/LaunchAgents/com.openclaw.agent.plist" 2>/dev/null || true
+        rm -f "$HOME/Library/LaunchAgents/com.openclaw.agent.plist" 2>/dev/null || true
+    fi
+
+    if [ -f "/etc/systemd/system/openclaw.service" ]; then
+        log_info "移除 systemd 系统服务..."
+        sudo systemctl stop openclaw 2>/dev/null || true
+        sudo systemctl disable openclaw 2>/dev/null || true
+        sudo rm -f /etc/systemd/system/openclaw.service 2>/dev/null || true
+        sudo systemctl daemon-reload 2>/dev/null || true
+    fi
+}
+
+uninstall_openclaw_global() {
+    echo ""
+    echo -e "${CYAN}执行全局卸载（保留 ~/.openclaw 目录）...${NC}"
+    stop_openclaw_for_uninstall
+    remove_openclaw_system_services
+
+    log_info "卸载全局 npm 包 openclaw..."
+    npm uninstall -g openclaw 2>&1 | grep -v "^npm" | head -8 || true
+
+    if command -v openclaw >/dev/null 2>&1; then
+        log_warn "openclaw 命令仍存在，请检查是否有多重安装源"
+    else
+        log_info "全局卸载完成"
+    fi
+}
+
+uninstall_openclaw_directory_preserve_assets() {
+    local oc_dir="$HOME/.openclaw"
+    echo ""
+    echo -e "${CYAN}执行目录卸载（保留 skills / plugins）...${NC}"
+
+    if [ ! -d "$oc_dir" ]; then
+        log_warn "未找到目录: $oc_dir"
+        return 0
+    fi
+
+    local tmp_keep
+    tmp_keep="$(mktemp -d)"
+
+    if [ -d "$oc_dir/skills" ]; then
+        cp -a "$oc_dir/skills" "$tmp_keep/skills" 2>/dev/null || true
+    fi
+    if [ -d "$oc_dir/plugins" ]; then
+        cp -a "$oc_dir/plugins" "$tmp_keep/plugins" 2>/dev/null || true
+    fi
+
+    rm -rf "$oc_dir"
+    mkdir -p "$oc_dir"
+    chmod 700 "$oc_dir" 2>/dev/null || true
+
+    if [ -d "$tmp_keep/skills" ]; then
+        cp -a "$tmp_keep/skills" "$oc_dir/skills" 2>/dev/null || true
+    fi
+    if [ -d "$tmp_keep/plugins" ]; then
+        cp -a "$tmp_keep/plugins" "$oc_dir/plugins" 2>/dev/null || true
+    fi
+    rm -rf "$tmp_keep"
+
+    log_info "目录卸载完成：已保留 ~/.openclaw/skills 与 ~/.openclaw/plugins"
+}
+
+uninstall_openclaw_directory_full() {
+    local oc_dir="$HOME/.openclaw"
+    if [ -d "$oc_dir" ]; then
+        rm -rf "$oc_dir"
+        log_info "已删除目录: $oc_dir"
+    else
+        log_warn "未找到目录: $oc_dir"
+    fi
+}
+
+openclaw_uninstall_menu() {
+    clear_screen
+    print_header
+    echo -e "${WHITE}🗑️ OpenClaw 卸载中心${NC}"
+    print_divider
+    echo ""
+    echo "  1) 全局卸载（移除命令、服务；保留 ~/.openclaw）"
+    echo "  2) 目录卸载（仅清理 ~/.openclaw，保留 skills/plugins）"
+    echo "  3) 完全卸载（全局 + 删除 ~/.openclaw）"
+    echo "  0) 返回"
+    echo ""
+    read_input "${YELLOW}请选择 [0-3]: ${NC}" uninstall_choice
+
+    case "$uninstall_choice" in
+        1)
+            if confirm "确认执行全局卸载？" "n"; then
+                uninstall_openclaw_global
+            else
+                log_info "已取消"
+            fi
+            ;;
+        2)
+            if confirm "确认执行目录卸载并保留 skills/plugins？" "n"; then
+                uninstall_openclaw_directory_preserve_assets
+            else
+                log_info "已取消"
+            fi
+            ;;
+        3)
+            if confirm "确认执行完全卸载？该操作不可恢复" "n"; then
+                uninstall_openclaw_global
+                uninstall_openclaw_directory_full
+            else
+                log_info "已取消"
+            fi
+            ;;
+        0)
+            return
+            ;;
+        *)
+            log_error "无效选择"
+            ;;
+    esac
+
+    echo ""
+    echo -e "${CYAN}如需重新安装:${NC}"
+    echo "  curl -fsSL ${INSTALLER_RAW_URL}/install.sh | bash"
+    press_enter
+}
+
 manage_service() {
     clear_screen
     print_header
@@ -4840,103 +5172,8 @@ manage_service() {
             fi
             ;;
         8)
-            echo ""
-            echo -e "${RED}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-            echo -e "${RED}           ⚠️  卸载 OpenClaw${NC}"
-            echo -e "${RED}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-            echo ""
-            echo -e "${YELLOW}此操作将:${NC}"
-            echo "  1. 停止 OpenClaw 服务"
-            echo "  2. 卸载 openclaw npm 包"
-            echo "  3. 可选删除配置目录 (~/.openclaw)"
-            echo ""
-            
-            if ! confirm "确定要卸载 OpenClaw 吗？" "n"; then
-                log_info "已取消卸载"
-                press_enter
-                manage_service
-                return
-            fi
-            
-            echo ""
-            
-            # 1. 停止服务
-            log_info "正在停止服务..."
-            if check_openclaw_installed; then
-                openclaw gateway stop 2>/dev/null || true
-                sleep 1
-            fi
-            
-            # 使用端口检测确保服务已停止
-            local uninstall_pid
-            uninstall_pid=$(get_gateway_pid)
-            if [ -n "$uninstall_pid" ]; then
-                log_warn "强制停止服务 (PID: $uninstall_pid)..."
-                kill -9 $uninstall_pid 2>/dev/null || true
-                sleep 1
-            fi
-            log_info "服务已停止"
-            
-            # 2. 卸载系统服务（如果已安装）
-            if [ -f "$HOME/Library/LaunchAgents/com.openclaw.agent.plist" ]; then
-                log_info "移除 macOS 系统服务..."
-                launchctl unload "$HOME/Library/LaunchAgents/com.openclaw.agent.plist" 2>/dev/null || true
-                rm -f "$HOME/Library/LaunchAgents/com.openclaw.agent.plist" 2>/dev/null || true
-            fi
-            
-            if [ -f "/etc/systemd/system/openclaw.service" ]; then
-                log_info "移除 systemd 系统服务..."
-                sudo systemctl stop openclaw 2>/dev/null || true
-                sudo systemctl disable openclaw 2>/dev/null || true
-                sudo rm -f /etc/systemd/system/openclaw.service 2>/dev/null || true
-                sudo systemctl daemon-reload 2>/dev/null || true
-            fi
-            
-            # 3. 卸载 npm 包
-            log_info "正在卸载 openclaw..."
-            npm uninstall -g openclaw 2>&1 | grep -v "^npm" | head -5 || true
-            
-            if ! check_openclaw_installed; then
-                log_info "OpenClaw 已卸载"
-            else
-                log_warn "卸载可能未完全成功，请手动运行: npm uninstall -g openclaw"
-            fi
-            
-            # 4. 询问是否删除配置
-            echo ""
-            if [ -d "$HOME/.openclaw" ]; then
-                echo -e "${YELLOW}检测到配置目录: ~/.openclaw${NC}"
-                echo ""
-                if confirm "是否删除配置目录？（包含所有配置和数据）" "n"; then
-                    # 备份提示
-                    echo ""
-                    if confirm "是否先备份到 ~/openclaw_backup_$(date +%Y%m%d)？" "y"; then
-                        local backup_dir="$HOME/openclaw_backup_$(date +%Y%m%d)"
-                        cp -r "$HOME/.openclaw" "$backup_dir" 2>/dev/null || true
-                        log_info "配置已备份到: $backup_dir"
-                    fi
-                    
-                    rm -rf "$HOME/.openclaw"
-                    log_info "配置目录已删除"
-                else
-                    log_info "保留配置目录 (~/.openclaw)"
-                fi
-            fi
-            
-            echo ""
-            echo -e "${GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-            echo -e "${GREEN}           ✓ OpenClaw 卸载完成${NC}"
-            echo -e "${GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-            echo ""
-            echo -e "${CYAN}如需重新安装，请运行:${NC}"
-            echo "  curl -fsSL ${INSTALLER_RAW_URL}/install.sh | bash"
-            echo ""
-            echo -e "${CYAN}项目主页:${NC}"
-            echo "  https://github.com/${INSTALLER_REPO}"
-            echo ""
-            
-            press_enter
-            # 卸载后返回主菜单
+            openclaw_uninstall_menu
+            manage_service
             return
             ;;
         9)
@@ -6025,14 +6262,9 @@ advanced_settings() {
             run_openclaw_upgrade_pipeline
             ;;
         7)
-            if confirm "确定要卸载 OpenClaw 吗？" "n"; then
-                npm uninstall -g openclaw
-                if confirm "是否同时删除配置文件？" "n"; then
-                    rm -rf "$CONFIG_DIR"
-                fi
-                log_info "OpenClaw 已卸载"
-                exit 0
-            fi
+            openclaw_uninstall_menu
+            advanced_settings
+            return
             ;;
         8)
             ai_auto_fix_menu

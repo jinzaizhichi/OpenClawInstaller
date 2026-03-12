@@ -44,6 +44,7 @@
 - [操作手册](#操作手册)
 - [配置说明](#配置说明)
 - [飞书插件说明](#飞书插件说明)
+- [微信适配说明（社区）](#微信适配说明社区)
 - [升级与维护](#升级与维护)
 - [安全建议](#安全建议)
 - [常见问题](#常见问题)
@@ -213,6 +214,8 @@ bash ./config-menu.sh
 - `[7]` 快速测试
 - `[8]` 高级设置（升级、备份、恢复）
 - `[8]` 高级设置 → `[8]` AI 自动修复 OpenClaw（集成 `auto-fix-openclaw`，支持 Codex/Claude CLI）
+- `[5]` 服务管理 → `[8]` 卸载中心（全局卸载 / 目录卸载保留 skills+plugins / 完全卸载）
+- `[3]` 消息渠道配置 → `[15]` 微信（LangBot WeChatPad，社区）
 
 AI 自动修复前置要求：
 
@@ -279,6 +282,21 @@ openclaw plugins update --all
 - 减少升级后插件冲突
 - 降低社区包与官方核心版本漂移带来的故障
 - 对齐官方渠道生态，便于维护与排障
+
+---
+
+## 微信适配说明（社区）
+
+微信接入已重构为 **LangBot WeChatPad 适配流程**（社区方案）：
+
+- 社区插件：`openclaw-wechat-channel`（固定版本安装）
+- 配置入口：`消息渠道配置 -> 微信（LangBot WeChatPad，社区）`
+- 关键参数：
+  - `WECHATPADPRO_BASEURL`
+  - `WECHATPADPRO_API_KEY`
+  - 回调地址（Host/Port/Path）
+
+说明：该方案非 OpenClaw 官方渠道，请在生产环境前先做稳定性与安全评估。
 
 ---
 
